@@ -88,6 +88,18 @@ func (sb *ThirdPartyBuffer) SetBufferConfig() {
 //   - error: An error object if an error occurs, otherwise nil.
 func (sb *ThirdPartyBuffer) RunBufferCommand(stream *Stream) error {
 	sb.Stream = stream
+
+	// homelab-fixes (2026-06-06 incident, zombie-ffmpeg root cause): kill any
+	// lingering process from a previous attempt before spawning a fresh one.
+	// Without this, each CDN error (e.g. 509) spawns a new ffmpeg without
+	// terminating the prior one — they accumulate unboundedly (~1 per 2s).
+	if sb.Cmd != nil && sb.Cmd.Process != nil {
+		_ = sb.Cmd.Process.Signal(syscall.SIGKILL)
+		_ = sb.Cmd.Wait()
+		DeletPIDfromDisc(fmt.Sprintf("%d", sb.Cmd.Process.Pid))
+		sb.Cmd = nil
+	}
+
 	args := sb.PrepareBufferArguments()
 
 	cmd := exec.Command(sb.Path, args...)

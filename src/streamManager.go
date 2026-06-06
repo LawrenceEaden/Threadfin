@@ -64,9 +64,13 @@ func NewStreamManager() *StreamManager {
 					if len(clients) > 0 && errorInfo.BufferClosed {
 						if stream.DoAutoReconnect{
 							if buffer, ok := stream.Buffer.(*ThirdPartyBuffer); ok {
+								// homelab-fixes: 2s back-off before retry — prevents
+								// rapid-fire CDN-error spinning while the kill-before-retry
+								// in RunBufferCommand handles process cleanup.
+								time.Sleep(2 * time.Second)
 								buffer.StartBuffer(stream)
 								continue
-							} 
+							}
 						}
 						stream.StopStream(streamID)
 					}
