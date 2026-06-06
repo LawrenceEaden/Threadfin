@@ -139,6 +139,14 @@ func CloseClientConnection(w http.ResponseWriter) {
 }
 
 func (s *Stream) Broadcast() {
+	// homelab-fixes: a panic here previously killed the whole process (one stream's
+	// fault taking down every stream). Convert to a buffer-level error so the
+	// auto-reconnect / stop path handles it.
+	defer func() {
+		if r := recover(); r != nil {
+			s.ReportError(fmt.Errorf("broadcast panic: %v", r), 4023, "", true)
+		}
+	}()
     buffer := make([]byte, 4096)
 	var stopChan chan struct{} = s.Buffer.GetStopChan()
 	var pipeReader *io.PipeReader = s.Buffer.GetPipeReader()
@@ -164,7 +172,13 @@ func (s *Stream) Broadcast() {
 				}
 				select {
                 case client.flushChannel <- struct{}{}:
-					<-client.doneChannel
+					// homelab-fixes: never block the whole stream on one client's ack —
+					// if the client's writer goroutine died or its context is gone, a bare
+					// receive here deadlocked Broadcast (holding s.mu) for ALL clients.
+					select {
+					case <-client.doneChannel:
+					case <-client.r.Context().Done():
+					}
                 default:
 					// Skip sending if the channel is full
 					ShowDebug(fmt.Sprintf("Skipped sending data to client: %s", clientID), 3)
@@ -176,15 +190,37 @@ func (s *Stream) Broadcast() {
 }
 
 func (s *Stream) handleClientWrites(client *Client, clientID string) {
+	// homelab-fixes (2026-06-06 incident, panic #1): writing/flushing can race the
+	// HTTP handler returning — the ResponseWriter is non-nil but already released,
+	// and bufio.Flush SIGSEGVs the whole process. The context check below narrows
+	// the window; this recover makes the residual race non-fatal and still acks
+	// Broadcast so the stream never wedges.
+	defer func() {
+		if r := recover(); r != nil {
+			select {
+			case client.doneChannel <- struct{}{}:
+			default:
+			}
+			s.ReportError(fmt.Errorf("client writer panic: %v", r), 0, clientID, false)
+		}
+	}()
+	ack := func() {
+		select {
+		case client.doneChannel <- struct{}{}:
+		default:
+		}
+	}
     for {
         select {
         case <-client.flushChannel:
-			if client.buffer == nil || client.w == nil {
-				s.ReportError(fmt.Errorf("client or writer is nil"),0 ,clientID, false)
+			if client.r.Context().Err() != nil || client.buffer == nil || client.w == nil {
+				ack()
+				s.ReportError(fmt.Errorf("client gone or writer is nil"), 0, clientID, false)
 				return
 			}
             _, err := client.buffer.WriteTo(client.w)
 			if err != nil {
+				ack()
 				s.ReportError(err, 0, clientID, false)
 				return
 			}
@@ -208,7 +244,12 @@ func (s *Stream) StopStream(streamID string) {
 	case *ThirdPartyBuffer:
 		pipeWriter = buffer.PipeWriter
 	}
-	pipeWriter.Close()
+	// homelab-fixes (2026-06-06 incident, panic #3): TunerLimitReached / threadfin
+	// buffers are not ThirdPartyBuffer — pipeWriter stays nil and Close() segfaulted
+	// the whole process during shutdown (main.stopAllStreams).
+	if pipeWriter != nil {
+		pipeWriter.Close()
+	}
 	for clientID, client := range s.Clients {
 		CloseClientConnection(client.w)
 		delete(s.Clients, clientID)
@@ -221,16 +262,26 @@ func (s *Stream) StopStream(streamID string) {
 }
 
 func (s *Stream) RemoveClientFromStream(streamID, clientID string) {
-	var pipeWriter *io.PipeWriter
-	switch buffer := s.Buffer.(type) {
-	case *ThirdPartyBuffer:
-		pipeWriter = buffer.PipeWriter
-	}
-	pipeWriter.Close()
+	// homelab-fixes (2026-06-06 incident, the silent-stall + spurious-EOF bug):
+	// this used to Close() the SHARED pipe before removing ONE client — ending the
+	// stream for every other consumer (a recorder mid-recording saw its data stop
+	// with no error → silent stall; live viewers got a clean EOF "though they
+	// touched nothing"). Only tear the buffer down when the LAST client leaves.
 	if client, exists := s.Clients[clientID]; exists {
 		CloseClientConnection(client.w)
 		delete(s.Clients, clientID)
 		ShowInfo(fmt.Sprintf("Streaming:Removed client from %s, total: %d", streamID, len(s.Clients)))
+	}
+	if len(s.Clients) == 0 {
+		var pipeWriter *io.PipeWriter
+		switch buffer := s.Buffer.(type) {
+		case *ThirdPartyBuffer:
+			pipeWriter = buffer.PipeWriter
+		}
+		if pipeWriter != nil {
+			pipeWriter.Close()
+		}
+		s.Buffer.CloseBuffer()
 	}
 }
 

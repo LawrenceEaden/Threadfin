@@ -292,6 +292,16 @@ func (sb *StreamBuffer) GetBufferedSize() (size int) {
 }
 
 func (sb *StreamBuffer) addBufferedFilesToPipe() {
+	// homelab-fixes (2026-06-06 incident, panic #4): a buffered memfs file whose
+	// backing data shrank to 0 while being read made avfs MemFile.Read slice
+	// [offset:0] and SIGSEGV the whole process — 100% reproducible by tuning a
+	// channel whose upstream resets mid-start. Report as a buffer error instead:
+	// the error handler then drives auto-reconnect / backup-channel failover.
+	defer func() {
+		if r := recover(); r != nil {
+			sb.Stream.ReportError(fmt.Errorf("buffer pipe panic: %v", r), 4022, "", true)
+		}
+	}()
 	for {
 		select {
 		case <-sb.StopChan:

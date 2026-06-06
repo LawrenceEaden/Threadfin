@@ -347,7 +347,10 @@ func GetStreamLimitContent() ([]byte, bool) {
 		ShowError(err, 0)
 	}
 	fileList, err := os.ReadDir(System.Folder.Video)
-	if err == nil {
+	// homelab-fixes (2026-06-06 incident, panic #2): an empty video folder made
+	// fileList[0] panic ("index out of range [0] with length 0") on every
+	// tuner-limit hit. Fall through to the embedded default content instead.
+	if err == nil && len(fileList) > 0 {
 		createContent := ShouldCreateContent(fileList)
 		if createContent && len(imageFileList) > 0 {
 			err := CreateAlternativNoMoreStreamsVideo(System.Folder.Custom + imageFileList[0].Name())

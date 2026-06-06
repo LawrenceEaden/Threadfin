@@ -1,0 +1,39 @@
+# Builds the homelab-patched Threadfin image and pushes it to GHCR.
+# Consumed by LawrenceEaden/homelab lxc/100-media/stacks/iptv/compose.yaml
+# (digest-pinned there; Renovate watches this registry).
+name: homelab image
+
+on:
+  push:
+    branches: [homelab-fixes]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          build-args: |
+            BUILD_FLAG=master
+            VERSION=1.8.2.47-homelab.1
+          tags: |
+            ghcr.io/lawrenceeaden/threadfin:homelab-fixes
+            ghcr.io/lawrenceeaden/threadfin:1.8.2.47-homelab.1
