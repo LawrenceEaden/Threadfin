@@ -1,3 +1,21 @@
+> ## ⚠️ Maintenance fork — `homelab-fixes`
+>
+> This is a **personal maintenance fork** of [marcelGoerentz/Threadfin](https://github.com/marcelGoerentz/Threadfin)
+> (itself a fork of [Threadfin/Threadfin](https://github.com/Threadfin/Threadfin), based on xTeVe), kept for my homelab.
+>
+> **Why it exists:** on 2026-06-06, during a live F1 broadcast, v1.8.2.47 crashed four
+> different ways under an unstable IPTV provider (process-killing Go panics in the
+> stream/buffer engine) and silently stalled an in-progress DVR recording. The upstream
+> fork appeared dormant, so the fixes live here. The `homelab-fixes` branch carries
+> **five crash/correctness fixes** — see the branch'''s commit messages for the precise
+> stack traces and reasoning behind each one.
+>
+> **Upstream is welcome to any of it** — happy to open a PR or share full diagnostics
+> (logs, stack traces, reproduction notes) if the fixes are wanted back. No support is
+> implied for anyone else running this fork, but issues are open if something here helps you.
+>
+> Licence: MIT, unchanged, original copyright preserved.
+
 <div align="center" style="background-color: #111; padding: 100;">
     <a href="https://github.com/marcelGoerentz/Threadfin"><img width="285" height="80" src="web/public/img/threadfin.png" alt="Threadfin" /></a>
 </div>

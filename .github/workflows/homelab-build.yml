@@ -6,6 +6,8 @@ name: homelab image
 on:
   push:
     branches: [homelab-fixes]
+    paths-ignore:
+      - "**.md"
   workflow_dispatch:
 
 permissions:
