@@ -64,9 +64,12 @@ func NewStreamManager() *StreamManager {
 					if len(clients) > 0 && errorInfo.BufferClosed {
 						if stream.DoAutoReconnect{
 							if buffer, ok := stream.Buffer.(*ThirdPartyBuffer); ok {
+								// Brief back-off before retry prevents rapid-fire spinning
+								// during a sustained CDN outage.
+								time.Sleep(2 * time.Second)
 								buffer.StartBuffer(stream)
 								continue
-							} 
+							}
 						}
 						stream.StopStream(streamID)
 					}

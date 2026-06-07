@@ -88,6 +88,22 @@ func (sb *ThirdPartyBuffer) SetBufferConfig() {
 //   - error: An error object if an error occurs, otherwise nil.
 func (sb *ThirdPartyBuffer) RunBufferCommand(stream *Stream) error {
 	sb.Stream = stream
+
+	// Kill any lingering process from a previous attempt before spawning a
+	// fresh one. RunBufferCommand is called again on every auto-reconnect,
+	// and sb.Cmd is overwritten at the end of this function with the new
+	// process. Without this guard the old ffmpeg is orphaned: CloseBuffer
+	// sends SIGKILL only to sb.Cmd (the most-recently assigned process), so
+	// earlier instances keep running and hold the upstream connection open
+	// indefinitely, blocking single-connection providers until the process
+	// exits naturally.
+	if sb.Cmd != nil && sb.Cmd.Process != nil {
+		_ = sb.Cmd.Process.Signal(syscall.SIGKILL)
+		_ = sb.Cmd.Wait()
+		DeletPIDfromDisc(fmt.Sprintf("%d", sb.Cmd.Process.Pid))
+		sb.Cmd = nil
+	}
+
 	args := sb.PrepareBufferArguments()
 
 	cmd := exec.Command(sb.Path, args...)
