@@ -87,6 +87,15 @@ func (sb *ThirdPartyBuffer) SetBufferConfig() {
 //   - *Buffer: A pointer to a Buffer struct representing the buffer process.
 //   - error: An error object if an error occurs, otherwise nil.
 func (sb *ThirdPartyBuffer) RunBufferCommand(stream *Stream) error {
+	// Kill any previously running process before starting a new one.
+	// On auto-reconnect the caller sets sb.Cmd = cmd at the end of this
+	// function, so without this the old process is orphaned and keeps the
+	// provider connection open, blocking the single tuner slot.
+	if sb.Cmd != nil && sb.Cmd.Process != nil {
+		sb.Cmd.Process.Signal(syscall.SIGKILL)
+		sb.Cmd.Wait()
+	}
+
 	sb.Stream = stream
 
 	// homelab-fixes (2026-06-06 incident, zombie-ffmpeg root cause): kill any
